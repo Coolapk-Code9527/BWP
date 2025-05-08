@@ -59,28 +59,26 @@ jobs:
         id: setup
         run: |
           echo "::group::配置环境变量"
-          # 统一配置区
-          cat <<EOF >> $GITHUB_ENV
-# 基础配置
-REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases
-TARGET_FILES=worker.zip
-VERSION_FILE=version.txt
-RELEASE_TYPE=release
-FORCE_UPDATE=false
-
-# 功能配置
-MAX_RETRIES=3
-TIMEOUT=30
-ENABLE_BACKUP=true
-MAX_BACKUPS=2
-SKIP_VERIFY=false
-LOG_LEVEL=INFO
-
-# 命令参数
-EXCLUDE_PATTERNS=
-UNZIP_OPTS=-o
-WGET_OPTS=-q
-EOF
+          # 基础配置
+          echo "REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases" >> $GITHUB_ENV
+          echo "TARGET_FILES=worker.zip" >> $GITHUB_ENV
+          echo "VERSION_FILE=version.txt" >> $GITHUB_ENV
+          echo "RELEASE_TYPE=release" >> $GITHUB_ENV
+          echo "FORCE_UPDATE=false" >> $GITHUB_ENV
+          
+          # 功能配置
+          echo "MAX_RETRIES=3" >> $GITHUB_ENV
+          echo "TIMEOUT=30" >> $GITHUB_ENV
+          echo "ENABLE_BACKUP=true" >> $GITHUB_ENV
+          echo "MAX_BACKUPS=2" >> $GITHUB_ENV
+          echo "SKIP_VERIFY=false" >> $GITHUB_ENV
+          echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+          
+          # 命令参数
+          echo "EXCLUDE_PATTERNS=" >> $GITHUB_ENV
+          echo "UNZIP_OPTS=-o" >> $GITHUB_ENV
+          echo "WGET_OPTS=-q" >> $GITHUB_ENV
+          
           # 记录触发方式（无需区分处理）
           echo "⚙️ 触发方式: ${{ github.event_name }}"
           echo "::endgroup::"
