@@ -65,8 +65,8 @@ jobs:
 REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases  # GitHub API地址
 TARGET_FILES=worker.zip  # 要更新的文件，多个文件用逗号分隔
 VERSION_FILE=version.txt  # 用于记录当前版本号的文件
-RELEASE_TYPE=release  # 版本类型：release(正式版)或prerelease(预发布版)
-FORCE_UPDATE=false  # 是否强制更新：true(强制)或false(检查版本)
+RELEASE_TYPE=release  # 版本类型: release(正式版)或prerelease(预发布版)
+FORCE_UPDATE=false  # 是否强制更新: true(强制)或false(检查版本)
 
 # 功能配置
 MAX_RETRIES=3  # 下载失败时的重试次数
