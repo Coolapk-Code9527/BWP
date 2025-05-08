@@ -361,16 +361,22 @@ jobs:
               file_operation restore "$TARGET_FILE"
               return 1
             fi
-            
-            # 解压文件
-            if ! extract_file "$TARGET_FILE"; then
-              log ERROR "解压 $TARGET_FILE 失败，尝试恢复"
-              file_operation restore "$TARGET_FILE"
-              return 1
-            fi
-            
-            # 清理下载的压缩包
-            rm -f "$TARGET_FILE"
+
+            # 判断文件类型，仅对压缩包执行解压，普通文件跳过
+            case "$TARGET_FILE" in
+              *.zip|*.tar.gz|*.tar|*.tgz)
+                if ! extract_file "$TARGET_FILE"; then
+                  log ERROR "解压 $TARGET_FILE 失败，尝试恢复"
+                  file_operation restore "$TARGET_FILE"
+                  return 1
+                fi
+                # 解压后可选删除压缩包
+                rm -f "$TARGET_FILE"
+                ;;
+              *)
+                log INFO "$TARGET_FILE 为普通文件，跳过解压"
+                ;;
+            esac
             log INFO "$TARGET_FILE 更新成功"
             return 0
           }
