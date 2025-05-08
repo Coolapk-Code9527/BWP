@@ -60,24 +60,24 @@ jobs:
         run: |
           echo "::group::配置环境变量"
           # 基础配置
-          echo "REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases" >> $GITHUB_ENV
-          echo "TARGET_FILES=worker.zip" >> $GITHUB_ENV
-          echo "VERSION_FILE=version.txt" >> $GITHUB_ENV
-          echo "RELEASE_TYPE=release" >> $GITHUB_ENV
-          echo "FORCE_UPDATE=false" >> $GITHUB_ENV
+          echo "REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases" >> $GITHUB_ENV  # GitHub API地址
+          echo "TARGET_FILES=worker.zip" >> $GITHUB_ENV  # 要更新的文件，多个文件用逗号分隔
+          echo "VERSION_FILE=version.txt" >> $GITHUB_ENV  # 用于记录当前版本号的文件
+          echo "RELEASE_TYPE=release" >> $GITHUB_ENV  # 版本类型：release(正式版)或prerelease(预发布版)
+          echo "FORCE_UPDATE=false" >> $GITHUB_ENV  # 是否强制更新：true(强制)或false(检查版本)
           
           # 功能配置
-          echo "MAX_RETRIES=3" >> $GITHUB_ENV
-          echo "TIMEOUT=30" >> $GITHUB_ENV
-          echo "ENABLE_BACKUP=true" >> $GITHUB_ENV
-          echo "MAX_BACKUPS=2" >> $GITHUB_ENV
-          echo "SKIP_VERIFY=false" >> $GITHUB_ENV
-          echo "LOG_LEVEL=INFO" >> $GITHUB_ENV
+          echo "MAX_RETRIES=3" >> $GITHUB_ENV  # 下载失败时的重试次数
+          echo "TIMEOUT=30" >> $GITHUB_ENV  # 下载超时时间(秒)
+          echo "ENABLE_BACKUP=true" >> $GITHUB_ENV  # 备份功能：true(启用)或false(禁用)
+          echo "MAX_BACKUPS=2" >> $GITHUB_ENV  # 保留的最大备份数量，0表示不限制
+          echo "SKIP_VERIFY=false" >> $GITHUB_ENV  # 参数验证：true(跳过)或false(启用)
+          echo "LOG_LEVEL=INFO" >> $GITHUB_ENV  # 日志级别：DEBUG, INFO, WARN, ERROR
           
           # 命令参数
-          echo "EXCLUDE_PATTERNS=" >> $GITHUB_ENV
-          echo "UNZIP_OPTS=-o" >> $GITHUB_ENV
-          echo "WGET_OPTS=-q" >> $GITHUB_ENV
+          echo "EXCLUDE_PATTERNS=" >> $GITHUB_ENV  # 解压时排除的文件模式，多个用空格分隔
+          echo "UNZIP_OPTS=-o" >> $GITHUB_ENV  # 解压参数：-o(覆盖), -j(忽略目录), -q(静默)
+          echo "WGET_OPTS=-q" >> $GITHUB_ENV  # 下载参数：-q(静默), --show-progress(显示进度)
           
           # 记录触发方式（无需区分处理）
           echo "⚙️ 触发方式: ${{ github.event_name }}"
