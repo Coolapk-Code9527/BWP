@@ -1,0 +1,471 @@
+# ===================================================================
+# BPB-Worker-Panel 自动更新工作流
+# ===================================================================
+# 描述: 此工作流用于自动检测并更新 BPB-Worker-Panel 的 Worker 组件文件
+# 
+# 功能：
+#   - 自动检测：支持定时检测和手动触发两种方式
+#   - 版本管理：支持正式版(release)和预发布版(prerelease)，记录版本信息
+#   - 多文件处理：支持同时更新多个文件，配置灵活
+#   - 安全机制：自动备份所有更新文件，错误时自动恢复
+#   - 日志系统：详细的日志记录和错误处理，便于故障排查
+#   - 自定义配置：可通过环境变量进行配置
+# ===================================================================
+
+name: Auto Update Worker
+
+# ===================================================================
+# 配置区：触发条件与参数
+# ===================================================================
+on:
+  # 推送触发 (仅main分支)
+  # 当有代码推送到main分支时自动运行
+  push:
+    branches: [main]
+  
+  # 定时触发 (cron语法)
+  # 可根据项目需求选择或自定义触发频率
+  schedule:
+    - cron: "0 4 * * *"  # 默认：每天凌晨4点运行
+    # - cron: "0 2 * * 1" # 可选：每周一凌晨2点
+    # - cron: "0 3 1 * *" # 可选：每月1日凌晨3点
+    # - cron: "0 */4 * * *" # 可选：每4小时运行
+  
+  # 手动触发
+  # 支持通过GitHub Actions界面手动运行
+  workflow_dispatch:
+
+# 权限设置
+# 需要写入权限用于提交更新后的文件和版本信息
+permissions:
+  contents: write  # 需要写入权限以提交更改
+
+# ===================================================================
+# 工作流任务
+# ===================================================================
+jobs:
+  update:
+    name: Update Worker Files
+    runs-on: ubuntu-latest
+    steps:
+      # 步骤1：检出代码仓库
+      # 获取当前代码库的最新内容
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 步骤2：设置统一环境变量
+      # 所有配置项都在此步骤中设置，避免多处定义导致的维护困难
+      - name: Setup Environment
+        id: setup
+        run: |
+          echo "::group::配置环境变量"
+          # 统一配置区
+          cat <<EOF >> $GITHUB_ENV
+# 基础配置
+REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases  # GitHub API地址
+TARGET_FILES=worker.zip  # 要更新的文件，多个文件用逗号分隔
+VERSION_FILE=version.txt  # 用于记录当前版本号的文件
+RELEASE_TYPE=release  # 版本类型：release(正式版)或prerelease(预发布版)
+FORCE_UPDATE=false  # 是否强制更新：true(强制)或false(检查版本)
+
+# 功能配置
+MAX_RETRIES=3  # 下载失败时的重试次数
+TIMEOUT=30  # 下载超时时间(秒)
+ENABLE_BACKUP=true  # 备份功能：true(启用)或false(禁用)
+MAX_BACKUPS=2  # 保留的最大备份数量，0表示不限制
+SKIP_VERIFY=false  # 参数验证：true(跳过)或false(启用)
+LOG_LEVEL=INFO  # 日志级别：DEBUG, INFO, WARN, ERROR
+
+# 命令参数
+EXCLUDE_PATTERNS=  # 解压时排除的文件模式，多个用空格分隔
+UNZIP_OPTS=-o  # 解压参数：-o(覆盖), -j(忽略目录), -q(静默)
+WGET_OPTS=-q  # 下载参数：-q(静默), --show-progress(显示进度)
+EOF
+          # 记录触发方式（无需区分处理）
+          echo "⚙️ 触发方式: ${{ github.event_name }}"
+          echo "::endgroup::"
+
+      # 步骤3：检查并更新Worker文件
+      # 主要执行脚本，负责检查和更新Worker组件
+      - name: Update Worker
+        id: update_worker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # GitHub Token用于API访问
+        run: |
+          #===================================================================
+          # Worker 自动更新脚本
+          #===================================================================
+
+          # 动态生成备份目录名
+          BACKUP_DIR=".backup_$(date +%Y%m%d%H%M%S)"  # 每次运行生成唯一的备份目录名
+
+          #===================================================================
+          # 通用函数区
+          #===================================================================
+          
+          # 日志输出函数
+          # 参数:
+          #   $1 - 日志级别 (DEBUG, INFO, WARN, ERROR)
+          #   $2 - 日志内容
+          # 功能: 根据配置的LOG_LEVEL决定是否输出特定级别的日志
+          log() {
+            local LEVEL="$1"; local MSG="$2"
+            case "$LOG_LEVEL" in
+              "DEBUG") :;;  # 输出所有级别
+              "INFO") [ "$LEVEL" = "DEBUG" ] && return 0;;  # 不输出DEBUG
+              "WARN") [[ "$LEVEL" =~ ^(DEBUG|INFO)$ ]] && return 0;;  # 只输出WARN和ERROR
+              "ERROR") [ "$LEVEL" != "ERROR" ] && return 0;;  # 只输出ERROR
+            esac
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] [$LEVEL] $MSG"
+          }
+          
+          # 文件名安全校验
+          # 参数: $1 - 文件名
+          # 返回: 0-安全 1-不安全
+          # 功能: 防止路径遍历攻击和特殊字符引起的问题
+          validate_filename() {
+            [[ "$1" == *".."* || "$1" == /* ]] && { log ERROR "不安全的文件名: $1"; return 1; }
+            [[ "$1" =~ [^a-zA-Z0-9._\-] ]] && { log WARN "文件名 $1 包含特殊字符"; }
+            return 0
+          }
+          
+          # 命令重试执行
+          # 参数:
+          #   $1 - 描述信息
+          #   $2 - 要执行的命令
+          #   $3 - 错误日志文件
+          #   $@ - 命令的其他参数
+          # 功能: 执行命令并支持失败重试
+          execute_with_retry() {
+            local DESC="$1"; local CMD="$2"; local ERR="$3"; shift 3; local RETRY=0
+            while [ $RETRY -lt $MAX_RETRIES ]; do
+              log INFO "$DESC (尝试 $((RETRY+1))/$MAX_RETRIES)..."
+              "$CMD" "$@" 2>"$ERR" && { log INFO "$DESC 成功"; rm -f "$ERR"; return 0; }
+              RETRY=$((RETRY+1)); log WARN "$DESC 失败 ($RETRY/$MAX_RETRIES): $(cat "$ERR")"; sleep 2
+            done
+            log ERROR "$DESC 失败，已达最大重试次数"; rm -f "$ERR"; return 1
+          }
+          
+          # 备份/恢复文件操作
+          # 参数:
+          #   $1 - 操作类型 (backup/restore)
+          #   $2 - 文件名
+          # 功能: 备份或恢复指定文件
+          file_operation() {
+            # 如果备份禁用且请求恢复，则警告并返回
+            if [ "$ENABLE_BACKUP" != "true" ] && [ "$1" = "restore" ]; then
+              log WARN "备份功能已禁用，无法恢复文件" 
+              return 0
+            fi
+            
+            # 备份操作
+            if [ "$1" = "backup" ] && [ -f "$2" ]; then
+              cp -f "$2" "$BACKUP_DIR/$2" 2>/dev/null
+              return $?
+            fi
+            
+            # 恢复操作
+            if [ "$1" = "restore" ] && [ -f "$BACKUP_DIR/$2" ]; then
+              cp -f "$BACKUP_DIR/$2" "$2" 2>/dev/null
+              return $?
+            fi
+            
+            return 0
+          }
+          
+          # 检查依赖
+          # 功能: 检查必要命令是否存在
+          check_dependencies() {
+            log INFO "检查依赖..."
+            local MISSING=false
+            for CMD in jq wget unzip curl; do 
+              command -v $CMD >/dev/null 2>&1 || { log ERROR "缺少依赖: $CMD"; MISSING=true; }
+            done
+            [ "$MISSING" = true ] && return 1
+            log INFO "依赖检查通过"; return 0
+          }
+          
+          # 参数校验
+          # 功能: 验证配置参数的有效性
+          validate_params() {
+            [ "$SKIP_VERIFY" = "true" ] && { log WARN "已配置跳过参数验证"; return 0; }
+            log INFO "验证参数..."
+            [[ "$RELEASE_TYPE" != "release" && "$RELEASE_TYPE" != "prerelease" ]] && { 
+              log ERROR "RELEASE_TYPE 参数无效: $RELEASE_TYPE"; return 1; }
+            [[ -z "$TARGET_FILES" ]] && { log ERROR "TARGET_FILES 参数不能为空"; return 1; }
+            log INFO "参数验证通过"; return 0
+          }
+          
+          # 清理旧备份
+          # 功能: 保留最新的MAX_BACKUPS个备份，删除旧备份
+          cleanup_old_backups() {
+            # 如果没有设置备份限制，直接返回
+            if [ "$MAX_BACKUPS" -le 0 ]; then 
+              log DEBUG "未设置最大备份数量限制" 
+              return 0
+            fi
+            
+            # 查找所有备份目录并排序
+            local BACKUPS=($(find . -maxdepth 1 -type d -name ".backup_*" | sort))
+            local COUNT=${#BACKUPS[@]}
+            
+            # 如果备份数量未超限制，直接返回
+            if [ "$COUNT" -le "$MAX_BACKUPS" ]; then
+              log DEBUG "备份数量($COUNT)未超过最大限制($MAX_BACKUPS)" 
+              return 0
+            fi
+            
+            # 删除超出限制的旧备份
+            log INFO "清理旧备份：保留$MAX_BACKUPS个，删除$((COUNT-MAX_BACKUPS))个"
+            for (( i=0; i<COUNT-MAX_BACKUPS; i++ )); do 
+              log INFO "删除旧备份: ${BACKUPS[$i]}"
+              rm -rf "${BACKUPS[$i]}"
+            done
+            
+            return 0
+          }
+          
+          # 创建备份目录
+          # 功能: 创建备份目录并清理旧备份
+          create_backup() {
+            # 如果备份功能禁用，直接返回
+            if [ "$ENABLE_BACKUP" != "true" ]; then
+              log WARN "备份功能已禁用"
+              return 0
+            fi
+            
+            # 创建备份目录
+            log INFO "创建备份目录: $BACKUP_DIR"
+            if ! mkdir -p "$BACKUP_DIR"; then
+              log ERROR "创建备份目录失败"
+              return 1
+            fi
+            
+            # 清理旧备份
+            cleanup_old_backups
+            return 0
+          }
+
+          #===================================================================
+          # 功能函数区
+          #===================================================================
+          
+          # 获取最新版本信息
+          # 功能: 从GitHub API获取最新版本信息
+          # 返回: 全局变量 TAG_NAME (版本号) 和 RESPONSE (API响应)
+          get_latest_version() {
+            log INFO "获取 $RELEASE_TYPE 版本信息..."
+            
+            # 调用GitHub API获取版本信息
+            RESPONSE=$(curl -s --retry 3 -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "$REPO_URL")
+            if [ $? -ne 0 ]; then
+              log ERROR "无法访问 GitHub API"
+              return 1
+            fi
+            
+            # 根据版本类型选择过滤器
+            if [ "$RELEASE_TYPE" = "prerelease" ]; then
+              JQ_FILTER='[.[] | select(.prerelease==true and .draft==false)][0]'
+            else
+              JQ_FILTER='[.[] | select(.prerelease==false and .draft==false)][0]'
+            fi
+            
+            # 获取版本号
+            TAG_NAME=$(echo "$RESPONSE" | jq -r "$JQ_FILTER.tag_name")
+            if [ -z "$TAG_NAME" ] || [ "$TAG_NAME" == "null" ]; then
+              log ERROR "未找到有效的 $RELEASE_TYPE 版本"
+              return 1
+            fi
+            
+            log INFO "找到最新版本: $TAG_NAME"
+            return 0
+          }
+          
+          # 下载文件
+          # 参数:
+          #   $1 - 文件名
+          #   $2 - 下载URL
+          # 功能: 下载指定URL的文件
+          download_file() {
+            local FILE="$1"; local URL="$2"
+            validate_filename "$FILE" || return 1
+            
+            # 设置下载参数
+            local WGET_ARGS=(--timeout="$TIMEOUT" -O "$FILE")
+            for arg in $WGET_OPTS; do WGET_ARGS+=($arg); done
+            WGET_ARGS+=("$URL")
+            
+            execute_with_retry "下载文件 $FILE" wget "wget_error.log" "${WGET_ARGS[@]}"
+            return $?
+          }
+          
+          # 解压文件
+          # 参数: $1 - 文件名
+          # 功能: 解压下载的文件
+          extract_file() {
+            local FILE="$1"
+            validate_filename "$FILE" || return 1
+            
+            # 设置解压参数
+            local UNZIP_ARGS=()
+            for arg in $UNZIP_OPTS; do UNZIP_ARGS+=($arg); done
+            
+            # 添加排除模式（如果有）
+            if [ ! -z "$EXCLUDE_PATTERNS" ]; then
+              for pattern in $EXCLUDE_PATTERNS; do UNZIP_ARGS+=(-x "$pattern"); done
+              log DEBUG "解压排除模式: ${EXCLUDE_PATTERNS}"
+            fi
+            
+            UNZIP_ARGS+=("$FILE")
+            execute_with_retry "解压文件 $FILE" unzip "unzip_error.log" "${UNZIP_ARGS[@]}" > /dev/null
+            return $?
+          }
+          
+          # 清理临时文件
+          # 参数: $1 - success/fail 表示更新结果
+          # 功能: 清理临时文件和根据更新结果决定是否保留备份
+          cleanup() {
+            log INFO "清理临时文件..."
+            rm -f wget_error.log unzip_error.log
+            
+            # 如果备份功能已禁用，直接返回
+            [ "$ENABLE_BACKUP" != "true" ] && return 0
+            
+            # 根据更新结果处理备份目录
+            if [ "$1" == "success" ]; then
+              log INFO "更新成功，删除备份目录"
+              rm -rf "$BACKUP_DIR"
+            else
+              log INFO "保留备份目录: $BACKUP_DIR"
+            fi
+          }
+          
+          # 处理单个文件的更新流程
+          # 参数: $1 - 文件名
+          # 功能: 完成单个文件的下载、备份、解压和恢复流程
+          update_single_file() {
+            local TARGET_FILE="$1"
+            
+            # 获取下载链接
+            DOWNLOAD_URL=$(echo "$RESPONSE" | jq -r "$JQ_FILTER.assets[] | select(.name == \"$TARGET_FILE\") | .browser_download_url")
+            if [ -z "$DOWNLOAD_URL" ] || [ "$DOWNLOAD_URL" == "null" ]; then
+              log ERROR "未找到 $TARGET_FILE 的下载链接"
+              return 1
+            fi
+            
+            # 备份当前文件
+            file_operation backup "$TARGET_FILE"
+            
+            # 下载文件
+            if ! download_file "$TARGET_FILE" "$DOWNLOAD_URL"; then
+              log ERROR "下载 $TARGET_FILE 失败，尝试恢复"
+              file_operation restore "$TARGET_FILE"
+              return 1
+            fi
+            
+            # 解压文件
+            if ! extract_file "$TARGET_FILE"; then
+              log ERROR "解压 $TARGET_FILE 失败，尝试恢复"
+              file_operation restore "$TARGET_FILE"
+              return 1
+            fi
+            
+            # 清理下载的压缩包
+            rm -f "$TARGET_FILE"
+            log INFO "$TARGET_FILE 更新成功"
+            return 0
+          }
+
+          #===================================================================
+          # 主逻辑区
+          #===================================================================
+          main() {
+            log INFO "====== 开始执行 Worker 更新流程 ======"
+            log DEBUG "配置信息: 版本类型=${RELEASE_TYPE}, 目标文件=${TARGET_FILES}, 备份=${ENABLE_BACKUP}"
+            
+            # 步骤1: 环境检查
+            # 检查必要依赖和参数有效性
+            log INFO "步骤1: 环境检查"
+            if ! check_dependencies; then
+              log ERROR "依赖检查失败，终止更新"
+              return 1
+            fi
+            
+            if ! validate_params; then
+              log ERROR "参数验证失败，终止更新"
+              return 1
+            fi
+            
+            # 步骤2: 版本文件检查
+            # 读取当前版本，如果版本文件不存在则创建
+            log INFO "步骤2: 版本检查"
+            if [ ! -f "$VERSION_FILE" ]; then
+              log WARN "$VERSION_FILE 不存在，自动创建"
+              echo "" > "$VERSION_FILE"
+            fi
+            
+            LOCAL_VERSION=$(cat "$VERSION_FILE")
+            log INFO "本地版本: ${LOCAL_VERSION:-无}"
+            
+            # 步骤3: 获取最新版本
+            # 从GitHub API获取最新版本信息
+            if ! get_latest_version; then
+              log ERROR "获取版本信息失败，终止更新"
+              return 1
+            fi
+            
+            # 步骤4: 判断是否需要更新
+            # 比较本地版本和远程版本，或检查是否强制更新
+            if [ "$LOCAL_VERSION" = "$TAG_NAME" ] && [ "$FORCE_UPDATE" != "true" ]; then
+              log INFO "已是最新版本，无需更新"
+              echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+              log INFO "====== Worker 更新流程完成 (无需更新) ======"
+              return 0
+            fi
+            
+            # 步骤5: 文件更新
+            # 创建备份并下载更新所有目标文件
+            log INFO "步骤5: 开始更新文件"
+            if ! create_backup; then
+              log ERROR "创建备份失败，终止更新"
+              return 1
+            fi
+            
+            UPDATE_SUCCESS=true
+            IFS=',' read -ra FILES <<< "$TARGET_FILES"
+            for TARGET_FILE in "${FILES[@]}"; do
+              log INFO "处理文件: $TARGET_FILE"
+              if ! update_single_file "$TARGET_FILE"; then
+                UPDATE_SUCCESS=false
+                log ERROR "文件 $TARGET_FILE 更新失败"
+              fi
+            done
+            
+            # 步骤6: 更新结果处理
+            # 根据更新结果更新版本号或恢复备份
+            if [ "$UPDATE_SUCCESS" = true ]; then
+              echo "$TAG_NAME" > "$VERSION_FILE"
+              log INFO "更新完成，新版本: $TAG_NAME"
+              echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+              cleanup success
+              log INFO "====== Worker 更新流程完成 (更新成功) ======"
+              return 0
+            else
+              log WARN "部分文件更新失败，版本号未更新"
+              cleanup fail
+              log INFO "====== Worker 更新流程完成 (部分失败) ======"
+              return 1
+            fi
+          }
+          
+          # 执行主逻辑
+          main
+
+      # 步骤4：提交更改
+      # 仅在更新成功时提交更改到代码库
+      - name: Commit Changes
+        if: success() # 仅在更新成功时提交
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🔄 自动同步 Worker 版本: ${{ steps.update_worker.outputs.tag_name || '未知' }}"
+          commit_author: "github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
