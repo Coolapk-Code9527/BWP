@@ -63,8 +63,9 @@ jobs:
           echo "REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases" >> $GITHUB_ENV  # GitHub API地址
           echo "TARGET_FILES=worker.zip" >> $GITHUB_ENV  # 要更新的文件，多个文件用逗号分隔
           echo "VERSION_FILE=version.txt" >> $GITHUB_ENV  # 用于记录当前版本号的文件
-          echo "RELEASE_TYPE=release" >> $GITHUB_ENV  # 版本类型：release(正式版)或prerelease(预发布版)
+          echo "RELEASE_TYPE=prerelease" >> $GITHUB_ENV  # 版本类型：release(正式版)或prerelease(预发布版)
           echo "FORCE_UPDATE=false" >> $GITHUB_ENV  # 是否强制更新：true(强制)或false(检查版本)
+          echo "ENABLE_OBFUSCATE=true" >> $GITHUB_ENV  # 是否启用混淆：true(启用)或false(禁用)，控制自动混淆_worker.js
           
           # 功能配置
           echo "MAX_RETRIES=3" >> $GITHUB_ENV  # 下载失败时的重试次数
@@ -458,6 +459,54 @@ jobs:
           
           # 执行主逻辑
           main
+
+      # 步骤3.5：混淆 Worker 文件（低强度，可配置开关）
+      - name: Use Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "16"
+
+      - name: Install javascript-obfuscator
+        run: npm install -g javascript-obfuscator
+
+      - name: Obfuscate _worker.js (Configurable)
+        # 根据 ENABLE_OBFUSCATE 配置项决定是否执行混淆，所有参数均有详细注释
+        run: |
+          if [ "$ENABLE_OBFUSCATE" = "true" ]; then
+            if [ -f "edgetunnel-main/_worker.js" ]; then
+              # 混淆参数说明：
+              # --compact true                # 启用代码压缩，去除多余空格和换行
+              # --identifier-names-generator mangled  # 变量/函数名混淆方式：mangled(短名) 或 hexadecimal(十六进制)
+              # --rename-globals false        # 是否重命名全局变量（true更强，兼容性略低）
+              # --string-array false          # 是否启用字符串数组混淆（true更强，兼容性略低）
+              # --string-array-encoding 'rc4' # 字符串数组加密方式（'rc4'/'base64'，需配合string-array true）
+              # --string-array-threshold 1    # 字符串数组混淆强度（0-1，1为全部字符串）
+              # --control-flow-flattening false # 控制流扁平化（true更强，兼容性略低）
+              # --control-flow-flattening-threshold 1 # 控制流扁平化强度（0-1）
+              # --dead-code-injection false   # 死代码注入（true更强，兼容性略低）
+              # --dead-code-injection-threshold 1 # 死代码注入强度（0-1）
+              # --transform-object-keys false # 对象键名混淆（true更强，兼容性略低）
+              # --unicode-escape-sequence false # 字符串转Unicode转义（true更强，兼容性略低）
+
+              javascript-obfuscator edgetunnel-main/_worker.js --output edgetunnel-main/_worker.js \
+                --compact true \
+                --identifier-names-generator mangled \
+                --rename-globals true \
+                --string-array true \
+                # --string-array-encoding 'rc4' \
+                # --string-array-threshold 1 \
+                # --control-flow-flattening false \
+                # --control-flow-flattening-threshold 1 \
+                # --dead-code-injection false \
+                # --dead-code-injection-threshold 1 \
+                # --transform-object-keys false \
+                # --unicode-escape-sequence false
+            else
+              echo "未找到 edgetunnel-main/_worker.js，跳过混淆"
+            fi
+          else
+            echo "未启用混淆（ENABLE_OBFUSCATE=false），直接跳过"
+          fi
 
       # 步骤4：提交更改
       # 仅在更新成功时提交更改到代码库
