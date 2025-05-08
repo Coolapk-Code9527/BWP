@@ -62,11 +62,11 @@ jobs:
           # 统一配置区
           cat <<EOF >> $GITHUB_ENV
 # 基础配置
-REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases  # GitHub API地址
-TARGET_FILES=worker.zip  # 要更新的文件，多个文件用逗号分隔
-VERSION_FILE=version.txt  # 用于记录当前版本号的文件
-RELEASE_TYPE=release  # 版本类型: release(正式版)或prerelease(预发布版)
-FORCE_UPDATE=false  # 是否强制更新: true(强制)或false(检查版本)
+REPO_URL="https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases"  # GitHub API地址
+TARGET_FILES="worker.zip"  # 要更新的文件，多个文件用逗号分隔
+VERSION_FILE="version.txt"  # 用于记录当前版本号的文件
+RELEASE_TYPE="release"  # 版本类型：release(正式版)或prerelease(预发布版)
+FORCE_UPDATE=false  # 是否强制更新：true(强制)或false(检查版本)
 
 # 功能配置
 MAX_RETRIES=3  # 下载失败时的重试次数
@@ -74,12 +74,12 @@ TIMEOUT=30  # 下载超时时间(秒)
 ENABLE_BACKUP=true  # 备份功能：true(启用)或false(禁用)
 MAX_BACKUPS=2  # 保留的最大备份数量，0表示不限制
 SKIP_VERIFY=false  # 参数验证：true(跳过)或false(启用)
-LOG_LEVEL=INFO  # 日志级别：DEBUG, INFO, WARN, ERROR
+LOG_LEVEL="INFO"  # 日志级别：DEBUG, INFO, WARN, ERROR
 
 # 命令参数
-EXCLUDE_PATTERNS=  # 解压时排除的文件模式，多个用空格分隔
-UNZIP_OPTS=-o  # 解压参数：-o(覆盖), -j(忽略目录), -q(静默)
-WGET_OPTS=-q  # 下载参数：-q(静默), --show-progress(显示进度)
+EXCLUDE_PATTERNS=""  # 解压时排除的文件模式，多个用空格分隔
+UNZIP_OPTS="-o"  # 解压参数：-o(覆盖), -j(忽略目录), -q(静默)
+WGET_OPTS="-q"  # 下载参数：-q(静默), --show-progress(显示进度)
 EOF
           # 记录触发方式（无需区分处理）
           echo "⚙️ 触发方式: ${{ github.event_name }}"
