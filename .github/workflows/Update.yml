@@ -61,7 +61,7 @@ jobs:
           echo "::group::配置环境变量"
           # 基础配置
           echo "REPO_URL=https://api.github.com/repos/bia-pain-bache/BPB-Worker-Panel/releases" >> $GITHUB_ENV  # GitHub API地址
-          echo "TARGET_FILES=worker.zip" >> $GITHUB_ENV  # 要更新的文件，多个文件用逗号分隔
+          echo "TARGET_FILES=_worker.js,worker.zip" >> $GITHUB_ENV  # 要更新和备份的文件，多个文件用逗号分隔
           echo "VERSION_FILE=version.txt" >> $GITHUB_ENV  # 用于记录当前版本号的文件
           echo "RELEASE_TYPE=prerelease" >> $GITHUB_ENV  # 版本类型：release(正式版)或prerelease(预发布版)
           echo "FORCE_UPDATE=false" >> $GITHUB_ENV  # 是否强制更新：true(强制)或false(检查版本)
@@ -137,7 +137,7 @@ jobs:
           # 功能: 执行命令并支持失败重试
           execute_with_retry() {
             local DESC="$1"; local CMD="$2"; local ERR="$3"; shift 3; local RETRY=0
-            while [ $RETRY -lt $MAX_RETRIES ]; do
+            while [ "$RETRY" -lt "$MAX_RETRIES" ]; do
               log INFO "$DESC (尝试 $((RETRY+1))/$MAX_RETRIES)..."
               "$CMD" "$@" 2>"$ERR" && { log INFO "$DESC 成功"; rm -f "$ERR"; return 0; }
               RETRY=$((RETRY+1)); log WARN "$DESC 失败 ($RETRY/$MAX_RETRIES): $(cat "$ERR")"; sleep 2
@@ -178,7 +178,7 @@ jobs:
             log INFO "检查依赖..."
             local MISSING=false
             for CMD in jq wget unzip curl; do 
-              command -v $CMD >/dev/null 2>&1 || { log ERROR "缺少依赖: $CMD"; MISSING=true; }
+              command -v "$CMD" >/dev/null 2>&1 || { log ERROR "缺少依赖: $CMD"; MISSING=true; }
             done
             [ "$MISSING" = true ] && return 1
             log INFO "依赖检查通过"; return 0
@@ -262,7 +262,7 @@ jobs:
               return 1
             fi
             
-            # 根据版本类型选择过滤器
+            # JQ_FILTER全局定义，避免作用域问题
             if [ "$RELEASE_TYPE" = "prerelease" ]; then
               JQ_FILTER='[.[] | select(.prerelease==true and .draft==false)][0]'
             else
@@ -291,7 +291,7 @@ jobs:
             
             # 设置下载参数
             local WGET_ARGS=(--timeout="$TIMEOUT" -O "$FILE")
-            for arg in $WGET_OPTS; do WGET_ARGS+=($arg); done
+            for arg in $WGET_OPTS; do WGET_ARGS+=("$arg"); done
             WGET_ARGS+=("$URL")
             
             execute_with_retry "下载文件 $FILE" wget "wget_error.log" "${WGET_ARGS[@]}"
@@ -307,7 +307,7 @@ jobs:
             
             # 设置解压参数
             local UNZIP_ARGS=()
-            for arg in $UNZIP_OPTS; do UNZIP_ARGS+=($arg); done
+            for arg in $UNZIP_OPTS; do UNZIP_ARGS+=("$arg"); done
             
             # 添加排除模式（如果有）
             if [ ! -z "$EXCLUDE_PATTERNS" ]; then
