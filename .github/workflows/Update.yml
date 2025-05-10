@@ -499,14 +499,13 @@ jobs:
                 --identifier-names-generator mangled \
                 --rename-globals true \
                 --string-array true \
-                # --string-array-encoding 'rc4' \
-                # --string-array-threshold 1 \
-                # --control-flow-flattening false \
-                # --control-flow-flattening-threshold 1 \
-                # --dead-code-injection false \
-                # --dead-code-injection-threshold 1 \
-                # --transform-object-keys false \
-                # --unicode-escape-sequence false
+                --string-array-rotate true \
+                --string-array-shuffle true \
+                --string-array-wrappers-count 5 \
+                --string-array-wrappers-type 'variable' \
+                --numbers-to-expressions true \
+                --split-strings true \
+                --split-strings-chunk-length 5 \
             else
               echo "未找到 edgetunnel-main/_worker.js，跳过混淆"
             fi
